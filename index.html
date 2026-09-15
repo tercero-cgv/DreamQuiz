@@ -206,6 +206,13 @@ body { font-family:'Nunito',sans-serif; background:var(--navy); color:var(--whit
   .q-text { font-size:1rem; }
   .panel-hdr { padding:12px 16px; flex-wrap:wrap; gap:8px; }
 }
+
+@media print {
+  .panel-hdr, .tab-bar, .btn, .modal-overlay { display:none !important; }
+  .modal { box-shadow:none; border:none; max-height:none !important; }
+  body { background:white; color:#000; }
+  #review-body { overflow:visible !important; max-height:none !important; }
+}
 </style>
 </head>
 <body>
@@ -337,6 +344,9 @@ body { font-family:'Nunito',sans-serif; background:var(--navy); color:var(--whit
       <div class="field">
         <label>Contraseña</label>
         <input type="password" id="stu-pass" placeholder="••••••" onkeydown="if(event.key==='Enter')stuLogin()">
+      </div>
+      <div id="stu-retry-msg" style="display:none" class="alert alert-err">
+        ⚠️ Ya completaste esta prueba. Si crees que es un error, avisa a tu maestro.
       </div>
       <button class="btn btn-mint" onclick="stuLogin()">Comenzar ✦</button>
     </div>
@@ -977,16 +987,28 @@ window.findExam = async () => {
   sel.innerHTML = '<option value="">— Selecciona tu nombre —</option>';
   let available = 0;
   stuSnap.forEach(d=>{
-    if (completed.has(d.id)) return;
     const s=d.data();
-    sel.innerHTML+=`<option value="${d.id}" data-pass="${esc(s.password)}">${s.name}</option>`;
-    available++;
+    if (completed.has(d.id)) {
+      sel.innerHTML+=`<option value="${d.id}" data-pass="${esc(s.password)}" data-completed="true">${s.name} ✓</option>`;
+    } else {
+      sel.innerHTML+=`<option value="${d.id}" data-pass="${esc(s.password)}">${s.name}</option>`;
+      available++;
+    }
   });
-  if (available === 0) {
-    showErr('stu-err','Todos los estudiantes ya completaron esta prueba.');
-    return;
-  }
   document.getElementById('stu-name-sec').style.display='block';
+  document.getElementById('stu-select').addEventListener('change', function() {
+    const opt = this.options[this.selectedIndex];
+    const retryMsg = document.getElementById('stu-retry-msg');
+    if (opt.dataset.completed === 'true') {
+      retryMsg.style.display = 'block';
+      document.getElementById('stu-pass').disabled = true;
+      document.querySelector('#stu-name-sec .btn-mint').style.display = 'none';
+    } else {
+      retryMsg.style.display = 'none';
+      document.getElementById('stu-pass').disabled = false;
+      document.querySelector('#stu-name-sec .btn-mint').style.display = 'block';
+    }
+  });
 };
 
 window.stuLogin = () => {
@@ -1263,9 +1285,20 @@ window.loadResults=async()=>{
     : await getDocs(collection(db,'submissions'));
   const el=document.getElementById('res-list');
   if(snap.empty){el.innerHTML=emptyState('📊','Sin resultados todavía.');return;}
+  // Dedup — keep highest score per student
+  const allDocs = [];
+  snap.forEach(d => allDocs.push({id:d.id,...d.data()}));
+  const bestMap = {};
+  allDocs.forEach(r => {
+    const key = r.studentName?.trim().toLowerCase();
+    if (!bestMap[key] || r.earnedPoints > bestMap[key].earnedPoints) bestMap[key] = r;
+  });
+  const dedupedDocs = Object.values(bestMap);
+  const dupCount = allDocs.length - dedupedDocs.length;
+
   let rows='';
-  snap.forEach(d=>{
-    const r=d.data();
+  dedupedDocs.forEach(r=>{
+    const d = r;
     const pend=r.needsReview&&!r.finalGradeSet;
     rows+=`
       <tr>
@@ -1276,11 +1309,38 @@ window.loadResults=async()=>{
         <td style="padding:10px 12px" class="mono">${pctToLetter(r.pct)}</td>
         <td style="padding:10px 12px">${pend?`<span class="pending-dot"></span>Pendiente`:'✅'}</td>
         <td style="padding:10px 12px;display:flex;gap:4px;flex-wrap:wrap">
-          ${pend?`<button class="btn btn-sky btn-sm" onclick="openGrade('${d.id}')">Evaluar</button>`:''}
+          ${pend?`<button class="btn btn-sky btn-sm" onclick="openGrade('${r.id}')">Evaluar</button>`:''}
+          <button class="btn btn-ghost btn-sm" onclick="openReview('${r.id}')">👁</button>
         </td>
       </tr>`;
   });
-  el.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.9rem">
+  // Show duplicates notice with authorize retry
+  let dupNotice = '';
+  if (dupCount > 0) {
+    const dupStudents = [];
+    const seen = {};
+    allDocs.forEach(r => {
+      const key = r.studentName?.trim().toLowerCase();
+      if (seen[key]) {
+        if (!dupStudents.find(d => d.name === r.studentName)) {
+          dupStudents.push({ name: r.studentName, examId: r.examId, studentId: r.studentId });
+        }
+      }
+      seen[key] = true;
+    });
+    const dupBtns = dupStudents.map(d =>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="font-weight:700">${d.name}</span>
+        <button class="btn btn-star btn-sm" onclick="authorizeRetry('${d.examId}','${d.studentId}')">Autorizar reintento</button>
+      </div>`
+    ).join('');
+    dupNotice = `<div class="alert alert-err" style="margin-bottom:16px">
+      <div style="font-weight:800;margin-bottom:8px">⚠️ ${dupCount} intento(s) duplicado(s) detectado(s) — se muestra solo la nota más alta:</div>
+      ${dupBtns}
+    </div>`;
+  }
+
+  el.innerHTML=dupNotice+`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.9rem">
     <thead><tr style="color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.8px">
       <th style="padding:8px 12px;text-align:left">Estudiante</th>
       <th style="padding:8px 12px;text-align:left">Prueba</th>
@@ -1335,7 +1395,123 @@ window.saveGrade=async()=>{
 
 
 
-// ── BIGDREAMERS INTEGRATION ──────────────────────────────
+// ── REVIEW & RETRY ──────────────────────────────────────────
+window.openReview = async sid => {
+  const snap = await getDoc(doc(db,'submissions',sid));
+  if (!snap.exists()) return;
+  const sub  = snap.data();
+  const eSnap = await getDoc(doc(db,'exams',sub.examId));
+  if (!eSnap.exists()) return;
+  const exam = eSnap.data();
+
+  document.getElementById('review-title').textContent =
+    `${sub.studentName} — ${sub.examTitle}`;
+
+  let html = `
+    <div style="margin-bottom:16px;padding:12px 16px;background:var(--navy-input);border-radius:12px;display:flex;gap:24px;flex-wrap:wrap">
+      <span><strong style="color:var(--muted);font-size:.75rem;text-transform:uppercase">Nota</strong><br><span style="font-size:1.8rem;font-weight:900;color:var(--star)">${sub.grade}</span></span>
+      <span><strong style="color:var(--muted);font-size:.75rem;text-transform:uppercase">Puntos</strong><br><span style="font-weight:800">${sub.earnedPoints}/${sub.totalPoints}</span></span>
+      <span><strong style="color:var(--muted);font-size:.75rem;text-transform:uppercase">Porcentaje</strong><br><span style="font-weight:800">${sub.pct}%</span></span>
+    </div>`;
+
+  sub.answers.forEach((ans, i) => {
+    const q = exam.questions.find(q => q.id === ans.qId);
+    if (!q) return;
+    const isCorrect = ans.earned === ans.maxPoints && ans.maxPoints > 0;
+    const isPending = ans.needsReview && !sub.finalGradeSet;
+    const icon = isPending ? '⏳' : (isCorrect ? '✅' : '❌');
+    const borderColor = isPending ? 'var(--sky)' : (isCorrect ? 'var(--mint)' : 'var(--coral)');
+
+    let answerDisplay = '';
+    if (ans.type === 'mc') {
+      const letter = ans.answer?.toUpperCase() || '—';
+      const text   = q.options?.[ans.answer] || '—';
+      const correct = q.options?.[q.correct] || '—';
+      answerDisplay = `
+        <div style="margin-top:8px;font-size:.9rem">
+          <span style="color:var(--muted)">Respondió:</span> <strong>${letter}. ${text}</strong>
+          ${!isCorrect ? `<br><span style="color:var(--muted)">Correcta:</span> <strong style="color:var(--mint)">${q.correct?.toUpperCase()}. ${correct}</strong>` : ''}
+        </div>`;
+    } else if (ans.type === 'fraction') {
+      const num = ans.answer?.num || '—';
+      const den = ans.answer?.den || '—';
+      answerDisplay = `
+        <div style="margin-top:8px;font-size:.9rem;display:flex;align-items:center;gap:16px">
+          <span style="color:var(--muted)">Respondió:</span>
+          <div style="display:inline-flex;flex-direction:column;align-items:center;background:var(--navy);border-radius:8px;padding:6px 12px">
+            <span style="font-weight:800;font-family:'Space Mono',monospace">${num}</span>
+            <div style="width:30px;height:2px;background:var(--white);margin:2px 0"></div>
+            <span style="font-weight:800;font-family:'Space Mono',monospace">${den}</span>
+          </div>
+          ${!isCorrect ? `<span style="color:var(--muted)">Correcta:</span>
+          <div style="display:inline-flex;flex-direction:column;align-items:center;background:var(--navy);border-radius:8px;padding:6px 12px;border:1px solid var(--mint)">
+            <span style="font-weight:800;font-family:'Space Mono',monospace;color:var(--mint)">${q.numerator}</span>
+            <div style="width:30px;height:2px;background:var(--mint);margin:2px 0"></div>
+            <span style="font-weight:800;font-family:'Space Mono',monospace;color:var(--mint)">${q.denominator}</span>
+          </div>` : ''}
+        </div>`;
+    } else if (ans.type === 'short') {
+      answerDisplay = `
+        <div style="margin-top:8px;font-size:.9rem">
+          <span style="color:var(--muted)">Respondió:</span>
+          <div style="background:var(--navy);border-radius:8px;padding:10px;margin-top:6px;font-size:.9rem;line-height:1.5">${ans.answer || '<em style="color:var(--muted)">Sin respuesta</em>'}</div>
+          <div style="margin-top:6px">Puntos otorgados: <strong>${ans.earned}/${ans.maxPoints}</strong></div>
+        </div>`;
+    } else if (ans.type === 'match-tt' || ans.type === 'match-it') {
+      const rows = q.pairs.map((p,pi) => {
+        const stuAns = ans.answer?.[pi];
+        const ok = stuAns === p.right;
+        return `<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;font-size:.88rem">
+          <span>${ok?'✅':'❌'}</span>
+          <span style="color:var(--muted)">${ans.type==='match-it'?'🖼':''}${p.left}</span>
+          <span style="color:var(--muted)">→</span>
+          <span style="${ok?'':'color:var(--coral)'}">${stuAns||'—'}</span>
+          ${!ok?`<span style="color:var(--muted)">→ correcto:</span><span style="color:var(--mint)">${p.right}</span>`:''}
+        </div>`;
+      }).join('');
+      answerDisplay = `<div style="margin-top:8px">${rows}</div>`;
+    } else if (ans.type === 'order') {
+      const rows = q.items.map(item => {
+        const stuPos = ans.answer?.[item.text];
+        const ok = stuPos === item.correctPos;
+        return `<div style="display:flex;gap:10px;align-items:center;margin-bottom:4px;font-size:.88rem">
+          <span>${ok?'✅':'❌'}</span>
+          <span style="font-family:'Space Mono',monospace;color:${ok?'var(--mint)':'var(--coral)'}">${stuPos||'—'}</span>
+          <span>${item.text}</span>
+          ${!ok?`<span style="color:var(--muted)">(correcto: ${item.correctPos})</span>`:''}
+        </div>`;
+      }).join('');
+      answerDisplay = `<div style="margin-top:8px">${rows}</div>`;
+    }
+
+    html += `
+      <div style="background:var(--navy-input);border-radius:12px;padding:16px;margin-bottom:12px;border-left:4px solid ${borderColor}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+          <div style="font-size:.72rem;font-weight:800;color:var(--sky);text-transform:uppercase;letter-spacing:1px">Pregunta ${i+1}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:1.1rem">${icon}</span>
+            <span style="font-size:.85rem;font-weight:800">${ans.earned}/${ans.maxPoints} pts</span>
+          </div>
+        </div>
+        <div style="font-weight:700;font-size:.95rem;line-height:1.5">${q.text}</div>
+        ${q.image ? `<img src="${q.image}" style="max-height:120px;object-fit:contain;border-radius:8px;margin-top:8px;border:1px solid var(--border)">` : ''}
+        ${answerDisplay}
+      </div>`;
+  });
+
+  document.getElementById('review-body').innerHTML = html;
+  openM('m-review');
+};
+
+window.authorizeRetry = async (examId, studentId) => {
+  const freshSnap = await getDocFromServer(doc(db,'exams',examId));
+  const completed = (freshSnap.data().completedBy || []).filter(id => id !== studentId);
+  await updateDoc(doc(db,'exams',examId), { completedBy: completed });
+  alert('✅ Reintento autorizado. El estudiante ya puede acceder.');
+  loadResults();
+};
+
+// ── BIGDREAMERS INTEGRATION ──────────────────────────────────
 const BD_FB_CONFIG = {
   apiKey:"AIzaSyDeek3nAsZ4Vxg-Lp_TNJAxP61o5I2ZITE",
   authDomain:"bigdreamers-e7afb.firebaseapp.com",
@@ -1389,8 +1565,17 @@ window.previewBD = async () => {
   const alertEl = document.getElementById('bd-alert');
   alertEl.style.display = 'none';
   const snap = await getDocs(query(collection(db,'submissions'),where('examId','==',bdCurrentExamId)));
-  bdSubmissions = [];
-  snap.forEach(d => { bdSubmissions.push(d.data()); });
+  // Collect all, then keep only highest score per student
+  const allSubs = [];
+  snap.forEach(d => { allSubs.push(d.data()); });
+  const bestByStudent = {};
+  allSubs.forEach(s => {
+    const key = s.studentName.trim().toLowerCase();
+    if (!bestByStudent[key] || s.earnedPoints > bestByStudent[key].earnedPoints) {
+      bestByStudent[key] = s;
+    }
+  });
+  bdSubmissions = Object.values(bestByStudent);
   if (!bdSubmissions.length) {
     alertEl.textContent='No hay resultados finales para esta prueba todavía.';
     alertEl.style.display='block'; return;
@@ -1544,6 +1729,21 @@ renderQForm();
       <button class="btn btn-mint" onclick="sendToBD()">⭐ Enviar</button>
       <button class="btn btn-ghost" onclick="closeM('m-bigdreamers')">Cancelar</button>
     </div>
+  </div>
+</div>
+
+
+<!-- MODAL: Review submission -->
+<div id="m-review" class="modal-overlay">
+  <div class="modal" style="max-width:700px;max-height:92vh">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div class="modal-title" style="margin-bottom:0" id="review-title">Revisión de Prueba</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Imprimir</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeM('m-review')">✕</button>
+      </div>
+    </div>
+    <div id="review-body" style="overflow-y:auto;max-height:75vh"></div>
   </div>
 </div>
 
