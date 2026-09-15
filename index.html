@@ -538,7 +538,7 @@ async function loadStudents() {
 
 // EXAMS
 window.openCreateExam = () => {
-  examQs = []; examOrder = 'fixed';
+  examQs = []; examOrder = 'fixed'; editingExamId = null;
   document.getElementById('ex-title').value = '';
   document.getElementById('ex-code').value  = '';
   document.getElementById('q-builder-list').innerHTML = '';
@@ -557,10 +557,33 @@ async function loadExams() {
           <div class="list-item-main">${e.title}</div>
           <div class="list-item-sub">Código: <span class="mono" style="color:var(--star)">${e.code}</span> · ${e.questions?.length||0} preguntas</div>
         </div>
-        <button class="btn btn-coral btn-sm" onclick="deleteExam('${d.id}')">🗑</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sky btn-sm" onclick="editExam('${d.id}')">✏️</button>
+          <button class="btn btn-coral btn-sm" onclick="deleteExam('${d.id}')">🗑</button>
+        </div>
       </div>`;
   });
 }
+window.editExam = async id => {
+  const snap = await getDoc(doc(db,'exams',id));
+  if (!snap.exists()) return alert('Prueba no encontrada.');
+  const e = snap.data();
+
+  editingExamId = id;
+  examQs = [...(e.questions || [])];
+  examOrder = e.randomOrder ? 'random' : 'fixed';
+
+  document.getElementById('ex-title').value = e.title || '';
+  document.getElementById('ex-code').value  = e.code  || '';
+  setOrder(examOrder);
+  renderBuilderList();
+  go('s-create-exam');
+
+  // Update save button label
+  const saveBtn = document.querySelector('#s-create-exam .btn-mint');
+  if (saveBtn) saveBtn.textContent = '💾 Actualizar Prueba';
+};
+
 window.deleteExam = async id => {
   if (!confirm('¿Eliminar prueba?')) return;
   await deleteDoc(doc(db,'exams',id)); loadExams();
@@ -570,14 +593,19 @@ window.saveExam = async () => {
   const code  = document.getElementById('ex-code').value.trim().toUpperCase();
   if (!title||!code) return alert('Completa el título y el código.');
   if (!examQs.length) return alert('Agrega al menos una pregunta.');
-  await setDoc(doc(db,'exams','ex-'+Date.now()),{title,code,questions:examQs,randomOrder:examOrder==='random',createdAt:serverTimestamp()});
-  alert('✅ Prueba guardada.');
+  const examDocId = editingExamId || 'ex-'+Date.now();
+  await setDoc(doc(db,'exams',examDocId),{title,code,questions:examQs,randomOrder:examOrder==='random',createdAt:serverTimestamp()});
+  alert(editingExamId ? '✅ Prueba actualizada.' : '✅ Prueba guardada.');
+  editingExamId = null;
   go('s-teacher');
   loadExams();
+  const saveBtn = document.querySelector('#s-create-exam .btn-mint');
+  if (saveBtn) saveBtn.textContent = '💾 Guardar';
 };
 
 // QUESTION FORM
 let examOrder = 'fixed';
+let editingExamId = null;
 window.setOrder = mode => {
   examOrder = mode;
   document.getElementById('order-fixed').className  = 'btn btn-sm ' + (mode==='fixed'  ? 'btn-mint'  : 'btn-ghost');
@@ -585,7 +613,16 @@ window.setOrder = mode => {
   document.getElementById('order-fixed').style.flex = '1';
   document.getElementById('order-random').style.flex = '1';
 };
-window.openAddQ = () => { openM('m-question'); renderQForm(); };
+window.openAddQ = () => {
+  editingQIndex = null;
+  openM('m-question');
+  renderQForm();
+  // Ensure button says Agregar
+  setTimeout(() => {
+    const addBtn = document.querySelector('#m-question .btn-sky');
+    if (addBtn) { addBtn.textContent = 'Agregar'; addBtn.onclick = addQ; }
+  }, 50);
+};
 
 window.renderQForm = () => {
   const type = document.getElementById('q-type').value;
@@ -731,10 +768,133 @@ function renderBuilderList() {
         <span class="q-builder-text" style="margin-left:8px">${i+1}. ${q.text.substring(0,55)}${q.text.length>55?'…':''}</span>
         <div class="muted" style="margin-top:4px">${q.points} pt${q.points>1?'s':''}</div>
       </div>
-      <button class="btn btn-coral btn-sm" onclick="removeQ(${i})">✕</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-sky btn-sm" onclick="editQ(${i})">✏️</button>
+        <button class="btn btn-coral btn-sm" onclick="removeQ(${i})">✕</button>
+      </div>
     </div>`).join('');
 }
 window.removeQ = i => { examQs.splice(i,1); renderBuilderList(); };
+
+let editingQIndex = null;
+
+window.editQ = i => {
+  editingQIndex = i;
+  const q = examQs[i];
+  openM('m-question');
+
+  // Set type and render form
+  document.getElementById('q-type').value = q.type;
+  renderQForm();
+
+  // Pre-fill common fields
+  if (document.getElementById('q-text'))  document.getElementById('q-text').value  = q.text || '';
+  if (document.getElementById('q-img'))   document.getElementById('q-img').value   = q.image || '';
+  if (q.image && document.getElementById('q-img-prev')) {
+    document.getElementById('q-img-prev').src = q.image;
+    document.getElementById('q-img-prev').style.display = 'block';
+  }
+
+  // Pre-fill by type
+  if (q.type === 'mc') {
+    if (document.getElementById('q-a')) document.getElementById('q-a').value = q.options?.a || '';
+    if (document.getElementById('q-b')) document.getElementById('q-b').value = q.options?.b || '';
+    if (document.getElementById('q-c')) document.getElementById('q-c').value = q.options?.c || '';
+    if (document.getElementById('q-d')) document.getElementById('q-d').value = q.options?.d || '';
+    if (document.getElementById('q-correct')) document.getElementById('q-correct').value = q.correct || 'a';
+    if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 1;
+  } else if (q.type === 'fraction') {
+    if (document.getElementById('q-num')) document.getElementById('q-num').value = q.numerator || '';
+    if (document.getElementById('q-den')) document.getElementById('q-den').value = q.denominator || '';
+    if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 1;
+  } else if (q.type === 'short') {
+    if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 5;
+  } else if (q.type === 'match-tt' || q.type === 'match-it') {
+    // Re-render pairs pre-filled
+    const container = document.getElementById('pairs-container');
+    container.innerHTML = '';
+    q.pairs.forEach((pair, idx) => {
+      addPair();
+      if (q.type === 'match-tt') {
+        const leftEl = document.getElementById(`pair-left-${idx}`);
+        if (leftEl) leftEl.value = pair.left;
+      } else {
+        const prevEl = document.getElementById(`pair-prev-${idx}`);
+        if (prevEl) { prevEl.src = pair.left; prevEl.style.display = 'block'; }
+        // Store URL for match-it
+        const leftInput = document.querySelector(`#pairs-container .pair-row:nth-child(${idx+1}) input[type="url"]`);
+        if (leftInput) leftInput.value = pair.left;
+      }
+      const rightEl = document.getElementById(`pair-right-${idx}`);
+      if (rightEl) rightEl.value = pair.right;
+    });
+  }
+
+  // Change modal button to "Actualizar"
+  const addBtn = document.querySelector('#m-question .btn-sky');
+  if (addBtn) { addBtn.textContent = '💾 Actualizar'; addBtn.onclick = updateQ; }
+};
+
+window.updateQ = () => {
+  if (editingQIndex === null) return;
+  const type = document.getElementById('q-type').value;
+  const text = document.getElementById('q-text')?.value?.trim();
+  if (!text) return alert('Escribe el enunciado.');
+  const img = document.getElementById('q-img')?.value?.trim() || '';
+
+  // Rebuild the question keeping the same id
+  const oldQ = examQs[editingQIndex];
+  let q = { type, text, id: oldQ.id, image: img };
+
+  if (type === 'mc') {
+    const opts = {
+      a: document.getElementById('q-a').value.trim(),
+      b: document.getElementById('q-b').value.trim(),
+      c: document.getElementById('q-c').value.trim(),
+      d: document.getElementById('q-d').value.trim()
+    };
+    const correct = document.getElementById('q-correct').value;
+    const filled = Object.entries(opts).filter(([k,v]) => v !== '');
+    if (filled.length < 2) return alert('Agrega al menos 2 alternativas.');
+    if (!opts[correct]) return alert('La alternativa correcta está vacía.');
+    q.options = Object.fromEntries(filled);
+    q.correct  = correct;
+    q.points   = parseInt(document.getElementById('q-pts').value) || 1;
+  } else if (type === 'fraction') {
+    q.numerator   = parseInt(document.getElementById('q-num').value);
+    q.denominator = parseInt(document.getElementById('q-den').value);
+    q.points      = parseInt(document.getElementById('q-pts').value) || 1;
+  } else if (type === 'short') {
+    q.points      = parseInt(document.getElementById('q-pts').value) || 5;
+    q.needsReview = true;
+  } else if (type === 'match-tt' || type === 'match-it') {
+    const pairs = [];
+    document.querySelectorAll('#pairs-container .pair-row').forEach(row => {
+      const right = row.querySelector(`[id^="pair-right-"]`)?.value?.trim();
+      if (type === 'match-tt') {
+        const left = row.querySelector(`[id^="pair-left-"]`)?.value?.trim();
+        if (left && right) pairs.push({left, right});
+      } else {
+        const leftInput = row.querySelector(`input[type="url"]`);
+        const left = leftInput?.value?.trim() || '';
+        if (left && right) pairs.push({left, right});
+      }
+    });
+    if (pairs.length < 2) return alert('Agrega al menos 2 pares.');
+    q.pairs  = pairs;
+    q.points = pairs.length;
+    delete q.image;
+  }
+
+  examQs[editingQIndex] = q;
+  editingQIndex = null;
+  renderBuilderList();
+  closeM('m-question');
+
+  // Restore add button
+  const addBtn = document.querySelector('#m-question .btn-sky');
+  if (addBtn) { addBtn.textContent = 'Agregar'; addBtn.onclick = addQ; }
+};
 
 // STUDENT FLOW
 window.findExam = async () => {
