@@ -408,6 +408,7 @@ body { font-family:'Nunito',sans-serif; background:var(--navy); color:var(--whit
         <option value="short">Respuesta Corta</option>
         <option value="match-tt">Pareo Texto → Texto</option>
         <option value="match-it">Pareo Imagen → Texto</option>
+        <option value="order">Ordenamiento</option>
       </select>
     </div>
     <div id="q-form-body"></div>
@@ -675,6 +676,15 @@ window.renderQForm = () => {
       <div id="pairs-container"></div>
       <button class="btn btn-ghost btn-sm" onclick="addPair()" style="margin-bottom:12px">+ Par</button>`;
     addPair(); addPair(); addPair();
+  } else if (type==='order') {
+    body.innerHTML = `
+      <div class="field"><label>Enunciado / Criterio</label><textarea id="q-text" placeholder="Ej. Ordena alfabéticamente los grupos de palabras. Usa los números del 1 al 5."></textarea></div>
+      <div class="field"><label>Imagen (URL opcional)</label><input type="url" id="q-img" placeholder="https://..." oninput="previewUrl('q-img','q-img-prev')"><img id="q-img-prev" class="url-preview"></div>
+      <div class="tip">💡 Escribe cada ítem y su posición correcta en el orden.</div>
+      <div id="order-items-container"></div>
+      <button class="btn btn-ghost btn-sm" onclick="addOrderItem()" style="margin-bottom:12px">+ Ítem</button>
+      <div class="field"><label>Puntos</label><input type="number" id="q-pts" value="1" min="1"></div>`;
+    addOrderItem(); addOrderItem(); addOrderItem(); addOrderItem(); addOrderItem();
   }
 };
 
@@ -740,6 +750,19 @@ window.addQ = () => {
   } else if (type==='short') {
     q.points      = parseInt(document.getElementById('q-pts').value)||5;
     q.needsReview = true;
+  } else if (type==='order') {
+    const items = [];
+    document.querySelectorAll('#order-items-container .pair-row').forEach((row,i) => {
+      const text = row.querySelector(`[id^="order-item-"]`)?.value?.trim();
+      const pos  = parseInt(row.querySelector(`[id^="order-pos-"]`)?.value);
+      if (text && pos) items.push({ text, correctPos: pos });
+    });
+    if (items.length < 2) return alert('Agrega al menos 2 ítems.');
+    q.items  = items;
+    q.points = parseInt(document.getElementById('q-pts').value) || 1;
+    delete q.image;
+    const imgEl = document.getElementById('q-img');
+    if (imgEl?.value?.trim()) q.image = imgEl.value.trim();
   } else if (type==='match-tt'||type==='match-it') {
     const pairs = [];
     document.querySelectorAll('#pairs-container .pair-row').forEach((row,i) => {
@@ -759,8 +782,8 @@ window.addQ = () => {
 };
 
 function renderBuilderList() {
-  const labels = {mc:'Sel. Múltiple',fraction:'Fracción',short:'Resp. Corta','match-tt':'Pareo T→T','match-it':'Pareo I→T'};
-  const badges  = {mc:'badge-sky',fraction:'badge-star',short:'badge-coral','match-tt':'badge-mint','match-it':'badge-mint'};
+  const labels = {mc:'Sel. Múltiple',fraction:'Fracción',short:'Resp. Corta','match-tt':'Pareo T→T','match-it':'Pareo I→T',order:'Ordenamiento'};
+  const badges  = {mc:'badge-sky',fraction:'badge-star',short:'badge-coral','match-tt':'badge-mint','match-it':'badge-mint',order:'badge-sky'};
   document.getElementById('q-builder-list').innerHTML = examQs.map((q,i)=>`
     <div class="q-builder">
       <div style="flex:1;min-width:0">
@@ -775,6 +798,17 @@ function renderBuilderList() {
     </div>`).join('');
 }
 window.removeQ = i => { examQs.splice(i,1); renderBuilderList(); };
+
+window.addOrderItem = () => {
+  const c = document.getElementById('order-items-container');
+  const i = c.children.length;
+  c.innerHTML += `
+    <div class="pair-row" style="grid-template-columns:2fr 80px auto">
+      <input type="text" placeholder="Ítem (ej. momia)" id="order-item-${i}">
+      <input type="number" placeholder="Pos." id="order-pos-${i}" min="1" style="text-align:center">
+      <button class="btn btn-coral btn-sm" onclick="this.closest('.pair-row').remove()">✕</button>
+    </div>`;
+};
 
 let editingQIndex = null;
 
@@ -809,6 +843,20 @@ window.editQ = i => {
     if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 1;
   } else if (q.type === 'short') {
     if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 5;
+  } else if (q.type === 'order') {
+    const container = document.getElementById('order-items-container');
+    container.innerHTML = '';
+    q.items.forEach((item, idx) => {
+      addOrderItem();
+      document.getElementById(`order-item-${idx}`).value = item.text;
+      document.getElementById(`order-pos-${idx}`).value  = item.correctPos;
+    });
+    if (document.getElementById('q-pts')) document.getElementById('q-pts').value = q.points || 1;
+    if (q.image && document.getElementById('q-img')) {
+      document.getElementById('q-img').value = q.image;
+      document.getElementById('q-img-prev').src = q.image;
+      document.getElementById('q-img-prev').style.display = 'block';
+    }
   } else if (q.type === 'match-tt' || q.type === 'match-it') {
     // Re-render pairs pre-filled
     const container = document.getElementById('pairs-container');
@@ -867,6 +915,18 @@ window.updateQ = () => {
   } else if (type === 'short') {
     q.points      = parseInt(document.getElementById('q-pts').value) || 5;
     q.needsReview = true;
+  } else if (type === 'order') {
+    const items = [];
+    document.querySelectorAll('#order-items-container .pair-row').forEach(row => {
+      const text = row.querySelector(`[id^="order-item-"]`)?.value?.trim();
+      const pos  = parseInt(row.querySelector(`[id^="order-pos-"]`)?.value);
+      if (text && pos) items.push({ text, correctPos: pos });
+    });
+    if (items.length < 2) return alert('Agrega al menos 2 ítems.');
+    q.items  = items;
+    q.points = parseInt(document.getElementById('q-pts').value) || 1;
+    const imgEl2 = document.getElementById('q-img');
+    if (imgEl2?.value?.trim()) q.image = imgEl2.value.trim();
   } else if (type === 'match-tt' || type === 'match-it') {
     const pairs = [];
     document.querySelectorAll('#pairs-container .pair-row').forEach(row => {
@@ -986,6 +1046,8 @@ function buildQHTML(q,i,total){
     inner+=`<textarea class="short-input" id="sh-${q.id}" placeholder="Escribe tu respuesta aquí…" oninput="saveShort(${q.id})"></textarea>`;
   } else if(q.type==='match-tt'||q.type==='match-it'){
     inner+=buildMatchHTML(q);
+  } else if(q.type==='order'){
+    inner+=buildOrderHTML(q);
   }
 
   return `
@@ -994,6 +1056,23 @@ function buildQHTML(q,i,total){
       <div class="q-text">${q.text}</div>
       ${inner}
     </div>`;
+}
+
+function buildOrderHTML(q){
+  // Shuffle items for student view
+  const shuffled = [...q.items];
+  for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];}
+  const rows = shuffled.map((item,i)=>`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <input type="number" min="1" max="${q.items.length}"
+        id="order-${q.id}-${i}"
+        data-text="${item.text.replace(/"/g,'&quot;')}"
+        placeholder="?"
+        oninput="saveOrder(${q.id})"
+        style="width:60px;background:var(--navy-input);border:2px solid var(--sky);border-radius:10px;padding:8px;color:var(--white);font-family:'Space Mono',monospace;font-size:1.1rem;font-weight:700;text-align:center;outline:none">
+      <span style="font-weight:700;font-size:1rem">${item.text}</span>
+    </div>`).join('');
+  return `<div style="margin-top:8px">${rows}</div>`;
 }
 
 function buildMatchHTML(q){
@@ -1025,6 +1104,13 @@ window.pickMC = (qId,key,el)=>{
 };
 window.saveFrac  = qId=>{ quizAns[qId]={num:document.getElementById(`fn-${qId}`)?.value,den:document.getElementById(`fd-${qId}`)?.value}; };
 window.saveShort = qId=>{ quizAns[qId]=document.getElementById(`sh-${qId}`)?.value; };
+window.saveOrder = qId => {
+  const inputs = document.querySelectorAll(`[id^="order-${qId}-"]`);
+  const ans = {};
+  inputs.forEach(inp => { if(inp.value) ans[inp.dataset.text] = parseInt(inp.value); });
+  quizAns[qId] = ans;
+};
+
 window.pickLeft  = (qId,idx)=>{
   if(!matchSel[qId]) matchSel[qId]={};
   matchSel[qId].left=idx;
@@ -1063,6 +1149,14 @@ window.submitQuiz = async ()=>{
       pts=m; ok=m===q.pairs.length;
     } else if(q.type==='short'){
       pts=0; needsReview=true;
+    } else if(q.type==='order'){
+      // Each item correctly placed earns 1 point (up to q.points total)
+      let correctItems=0;
+      q.items.forEach(item=>{
+        if(ans && ans[item.text]===item.correctPos) correctItems++;
+      });
+      pts=Math.round((correctItems/q.items.length)*q.points);
+      ok=correctItems===q.items.length;
     }
     earned+=pts;
     if(q.type!=='short'){ok?correct++:incorrect++;}
