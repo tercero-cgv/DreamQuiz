@@ -1672,11 +1672,11 @@ window.sendToBD = async () => {
           instValor = existing.valor;
         } else {
           // Create new with timestamp suffix
-          instId = 'dq-'+Date.now();
+          instId = 'dq'+Date.now();
           matData.instrumentos.push({id:instId,tipo,tema,fecha,valor:instValor});
         }
       } else {
-        instId = 'dq-'+Date.now();
+        instId = 'dq'+Date.now();
         matData.instrumentos.push({id:instId,tipo,tema,fecha,valor:instValor});
       }
     } else {
@@ -1718,8 +1718,12 @@ window.sendToBD = async () => {
     const BD_REST_URL = `https://firestore.googleapis.com/v1/${BD_DOC_PATH}`;
 
     // Build the fields update mask for dot-notation patch
+    // Firestore REST requires backtick-quoting for path segments with special chars (like dashes)
     const fieldPaths = Object.keys(camposAActualizar)
-      .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+      .map(k => {
+        const quoted = k.split('.').map(seg => /[^a-zA-Z_0-9]/.test(seg) ? '`'+seg+'`' : seg).join('.');
+        return `updateMask.fieldPaths=${encodeURIComponent(quoted)}`;
+      })
       .join('&');
 
     // Convert to Firestore REST format
