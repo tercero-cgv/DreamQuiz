@@ -1712,15 +1712,85 @@ window.sendToBD = async () => {
     console.log('camposAActualizar:', JSON.stringify(camposAActualizar));
     console.log('instId:', instId, 'matched:', matched);
 
-    // 1. Save/update instrumentos array with merge
-    await bdSetDoc(
-      bdDoc(bdDb,'bigdreamers','materia_'+materia),
-      { instrumentos: matData.instrumentos },
-      { merge: true }
-    );
-    // 2. Write puntuaciones with dot-notation — only touches these specific fields
-    if (Object.keys(camposAActualizar).length > 0) {
-      await bdUpdateDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia), camposAActualizar);
+    // Use Firestore REST API directly to avoid SDK version conflicts
+    const BD_PROJECT = 'bigdreamers-e7afb';
+    const BD_DOC_PATH = `projects/${BD_PROJECT}/databases/(default)/documents/bigdreamers/materia_${materia}`;
+    const BD_REST_URL = `https://firestore.googleapis.com/v1/${BD_DOC_PATH}`;
+
+    // Build the fields update mask for dot-notation patch
+    const fieldPaths = Object.keys(camposAActualizar)
+      .map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+      .join('&');
+
+    // Convert to Firestore REST format
+    function toFirestoreValue(val) {
+      if (typeof val === 'number') return { integerValue: String(val) };
+      if (typeof val === 'string') return { stringValue: val };
+      if (Array.isArray(val)) return { arrayValue: { values: val.map(toFirestoreValue) } };
+      if (typeof val === 'object' && val !== null) {
+        const fields = {};
+        Object.entries(val).forEach(([k,v]) => { fields[k] = toFirestoreValue(v); });
+        return { mapValue: { fields } };
+      }
+      return { nullValue: null };
+    }
+
+    // Build nested fields object from dot-notation keys
+    function buildNestedFields(flatObj) {
+      const fields = {};
+      Object.entries(flatObj).forEach(([dotKey, val]) => {
+        const parts = dotKey.split('.');
+        let cur = fields;
+        parts.forEach((part, i) => {
+          if (i === parts.length - 1) {
+            cur[part] = toFirestoreValue(val);
+          } else {
+            if (!cur[part]) cur[part] = { mapValue: { fields: {} } };
+            cur = cur[part].mapValue.fields;
+          }
+        });
+      });
+      return fields;
+    }
+
+    // 1. Patch puntuaciones using field mask
+    const puntFields = buildNestedFields(camposAActualizar);
+    const patchUrl = `${BD_REST_URL}?${fieldPaths}`;
+    const patchRes = await fetch(patchUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: puntFields })
+    });
+    if (!patchRes.ok) {
+      const err = await patchRes.text();
+      console.error('❌ REST PATCH failed:', err);
+      throw new Error('Error escribiendo puntuaciones: ' + patchRes.status);
+    }
+    console.log('✅ puntuaciones written via REST PATCH');
+
+    // 2. Update instrumentos array via PATCH with field mask
+    function toRestInstrumento(inst) {
+      return { mapValue: { fields: {
+        id:    { stringValue: inst.id },
+        tipo:  { stringValue: inst.tipo },
+        tema:  { stringValue: inst.tema },
+        fecha: { stringValue: inst.fecha || '' },
+        valor: { integerValue: String(inst.valor) }
+      }}};
+    }
+    const instPatchUrl = `${BD_REST_URL}?updateMask.fieldPaths=instrumentos`;
+    const instRes = await fetch(instPatchUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: {
+        instrumentos: { arrayValue: { values: matData.instrumentos.map(toRestInstrumento) } }
+      }})
+    });
+    if (!instRes.ok) {
+      const err = await instRes.text();
+      console.error('❌ REST instrumentos PATCH failed:', err);
+    } else {
+      console.log('✅ instrumentos written via REST PATCH');
     }
     let msg=`✅ ${matched} estudiante${matched!==1?'s':''} enviado${matched!==1?'s':''} a BigDreamers → ${materia}.`;
     if (unmatched.length) msg+=`\n⚠️ Sin coincidencia en BigDreamers: ${unmatched.join(', ')}`;
