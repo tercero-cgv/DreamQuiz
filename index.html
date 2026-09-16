@@ -1673,10 +1673,18 @@ window.sendToBD = async () => {
         .toLowerCase().replace(/,/g,' ').split(/\s+/).filter(Boolean).sort().join(' ');
     }
 
+    console.log('BD Students sample:', bdStudents.slice(0,3).map(s=>({nombre:s.nombre, apellidos:s.apellidos})));
+    console.log('DQ Students:', bdSubmissions.map(s=>s.studentName));
+
     let matched=0, unmatched=[];
     bdSubmissions.forEach(sub=>{
       const normSub = normName(sub.studentName);
-      const bdStu = bdStudents.find(s => normName(`${s.nombre} ${s.apellidos}`) === normSub);
+      // BigDreamers has single 'nombre' field in format "Apellido, Nombre" — no apellidos field
+      const bdStu = bdStudents.find(s => {
+        const bdNorm = normName(s.nombre || '');
+        console.log(`Comparing DQ:"${normSub}" vs BD:"${bdNorm}"`);
+        return bdNorm === normSub;
+      });
       if (!bdStu) { unmatched.push(sub.studentName); return; }
       if (!matData.puntuaciones[bdStu.id]) matData.puntuaciones[bdStu.id]={};
       matData.puntuaciones[bdStu.id][instId]=sub.earnedPoints;
