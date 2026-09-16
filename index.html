@@ -1566,7 +1566,7 @@ const BD_FB_CONFIG = {
   appId:"1:855133917142:web:aaf551586b0c3fcd1d9e77"
 };
 import { initializeApp as bdInitApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore as bdGetFirestore, doc as bdDoc, getDoc as bdGetDoc, setDoc as bdSetDoc }
+import { getFirestore as bdGetFirestore, doc as bdDoc, getDoc as bdGetDoc, setDoc as bdSetDoc, updateDoc as bdUpdateDoc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const bdApp2 = bdInitApp(BD_FB_CONFIG, 'bigdreamers');
@@ -1711,20 +1711,26 @@ window.sendToBD = async () => {
       matched++;
     });
 
-    // Verify the new entries are in matData before saving
+    // Build dot-notation update for puntuaciones (preserves existing data)
+    const camposAActualizar = {};
     bdSubmissions.forEach(sub=>{
-      const bdStu = bdStudents.find(s=>s.nombre.trim().toLowerCase()===sub.studentName.trim().toLowerCase());
-      if (bdStu) console.log(`🔍 Check before save - ${bdStu.id}:`, JSON.stringify(matData.puntuaciones[bdStu.id]));
+      const normSub = normName(sub.studentName);
+      const bdStu = bdStudents.find(s=>{
+        const bdWords = normName(s.nombre||'').split(' ');
+        return normSub.split(' ').every(w=>bdWords.includes(w));
+      });
+      if (bdStu) camposAActualizar[`puntuaciones.${bdStu.id}.${instId}`] = sub.earnedPoints;
     });
-    await bdSetDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia), matData);
-    console.log('✅ bdSetDoc completed - total keys:', Object.keys(matData.puntuaciones).length);
-    // Verify it was saved by reading back
-    const verify = await bdGetDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia));
-    const vData = verify.data();
-    bdSubmissions.forEach(sub=>{
-      const bdStu = bdStudents.find(s=>s.nombre.trim().toLowerCase()===sub.studentName.trim().toLowerCase());
-      if (bdStu) console.log(`✅ Verified in Firestore - ${sub.studentName}:`, JSON.stringify(vData.puntuaciones?.[bdStu.id]));
-    });
+
+    // Save instrumentos array (merge so we don't overwrite other fields)
+    await bdSetDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia),
+      { instrumentos: matData.instrumentos },
+      { merge: true }
+    );
+    // Write puntuaciones with dot-notation to avoid overwriting other students
+    if (Object.keys(camposAActualizar).length > 0) {
+      await bdUpdateDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia), camposAActualizar);
+    }
     let msg=`✅ ${matched} estudiante${matched!==1?'s':''} enviado${matched!==1?'s':''} a BigDreamers → ${materia}.`;
     if (unmatched.length) msg+=`\n⚠️ Sin coincidencia en BigDreamers: ${unmatched.join(', ')}`;
     alert(msg);
