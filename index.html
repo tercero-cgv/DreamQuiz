@@ -1693,41 +1693,32 @@ window.sendToBD = async () => {
         .toLowerCase().replace(/,/g,' ').split(/\s+/).filter(Boolean).sort().join(' ');
     }
 
+    // Single loop: match students and build dot-notation update simultaneously
     let matched=0, unmatched=[];
+    const camposAActualizar = {};
+
     bdSubmissions.forEach(sub=>{
       const normSub = normName(sub.studentName);
-      // BigDreamers has single 'nombre' field in format "Apellido, Nombre" — no apellidos field
       const bdStu = bdStudents.find(s => {
-        const bdNorm = normName(s.nombre || '');
-        // Check if all words in DQ name are contained in BD name
         const dqWords = normSub.split(' ');
-        const bdWords = bdNorm.split(' ');
+        const bdWords = normName(s.nombre||'').split(' ');
         return dqWords.every(w => bdWords.includes(w));
       });
       if (!bdStu) { unmatched.push(sub.studentName); return; }
-      if (!matData.puntuaciones[bdStu.id]) matData.puntuaciones[bdStu.id]={};
-      matData.puntuaciones[bdStu.id][instId]=sub.earnedPoints;
-      console.log(`✅ Match: ${sub.studentName} → bdId:${bdStu.id} instId:${instId} pts:${sub.earnedPoints}`);
+      camposAActualizar[`puntuaciones.${bdStu.id}.${instId}`] = sub.earnedPoints;
       matched++;
     });
 
-    // Build dot-notation update for puntuaciones (preserves existing data)
-    const camposAActualizar = {};
-    bdSubmissions.forEach(sub=>{
-      const normSub = normName(sub.studentName);
-      const bdStu = bdStudents.find(s=>{
-        const bdWords = normName(s.nombre||'').split(' ');
-        return normSub.split(' ').every(w=>bdWords.includes(w));
-      });
-      if (bdStu) camposAActualizar[`puntuaciones.${bdStu.id}.${instId}`] = sub.earnedPoints;
-    });
+    console.log('camposAActualizar:', JSON.stringify(camposAActualizar));
+    console.log('instId:', instId, 'matched:', matched);
 
-    // Save instrumentos array (merge so we don't overwrite other fields)
-    await bdSetDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia),
+    // 1. Save/update instrumentos array with merge
+    await bdSetDoc(
+      bdDoc(bdDb,'bigdreamers','materia_'+materia),
       { instrumentos: matData.instrumentos },
       { merge: true }
     );
-    // Write puntuaciones with dot-notation to avoid overwriting other students
+    // 2. Write puntuaciones with dot-notation — only touches these specific fields
     if (Object.keys(camposAActualizar).length > 0) {
       await bdUpdateDoc(bdDoc(bdDb,'bigdreamers','materia_'+materia), camposAActualizar);
     }
