@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DreamQuiz ✦</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -1709,8 +1710,6 @@ window.sendToBD = async () => {
       matched++;
     });
 
-    console.log('camposAActualizar:', JSON.stringify(camposAActualizar));
-    console.log('instId:', instId, 'matched:', matched);
 
     // Use Firestore REST API directly to avoid SDK version conflicts
     const BD_PROJECT = 'bigdreamers-e7afb';
@@ -1767,10 +1766,8 @@ window.sendToBD = async () => {
     });
     if (!patchRes.ok) {
       const err = await patchRes.text();
-      console.error('❌ REST PATCH failed:', err);
       throw new Error('Error escribiendo puntuaciones: ' + patchRes.status);
     }
-    console.log('✅ puntuaciones written via REST PATCH');
 
     // 2. Update instrumentos array via PATCH with field mask
     function toRestInstrumento(inst) {
@@ -1792,9 +1789,7 @@ window.sendToBD = async () => {
     });
     if (!instRes.ok) {
       const err = await instRes.text();
-      console.error('❌ REST instrumentos PATCH failed:', err);
     } else {
-      console.log('✅ instrumentos written via REST PATCH');
     }
     let msg=`✅ ${matched} estudiante${matched!==1?'s':''} enviado${matched!==1?'s':''} a BigDreamers → ${materia}.`;
     if (unmatched.length) msg+=`\n⚠️ Sin coincidencia en BigDreamers: ${unmatched.join(', ')}`;
