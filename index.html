@@ -1657,8 +1657,28 @@ window.sendToBD = async () => {
       const fecha = document.getElementById('bd-fecha').value;
       if (!tema) { alertEl.textContent='Escribe el tema.'; alertEl.style.display='block'; return; }
       instValor = bdSubmissions[0].totalPoints;
-      instId    = 'dq-'+Date.now();
-      matData.instrumentos.push({id:instId,tipo,tema,fecha,valor:instValor});
+
+      // Check if instrument with same tema already exists
+      const existing = matData.instrumentos.find(i =>
+        i.tema.trim().toLowerCase() === tema.toLowerCase()
+      );
+      if (existing) {
+        const choice = confirm(
+          `Ya existe un instrumento con este tema en BigDreamers:\n\n"${existing.tema}"\n\n¿Quieres REEMPLAZAR sus puntuaciones con las nuevas?\n\nPresiona OK para reemplazar, Cancelar para crear uno nuevo de todas formas.`
+        );
+        if (choice) {
+          // Use existing instrument
+          instId    = existing.id;
+          instValor = existing.valor;
+        } else {
+          // Create new with timestamp suffix
+          instId = 'dq-'+Date.now();
+          matData.instrumentos.push({id:instId,tipo,tema,fecha,valor:instValor});
+        }
+      } else {
+        instId = 'dq-'+Date.now();
+        matData.instrumentos.push({id:instId,tipo,tema,fecha,valor:instValor});
+      }
     } else {
       const sel = document.getElementById('bd-existing-select');
       instId    = sel.value;
