@@ -1666,9 +1666,17 @@ window.sendToBD = async () => {
       if (!instId) { alertEl.textContent='Selecciona un instrumento.'; alertEl.style.display='block'; return; }
     }
 
+    // Normalize names: remove accents, lowercase, sort words alphabetically
+    // This matches "María González" with "González, María" or any word order
+    function normName(str) {
+      return (str||'').normalize('NFD').replace(/[̀-ͯ]/g,'')
+        .toLowerCase().replace(/,/g,' ').split(/\s+/).filter(Boolean).sort().join(' ');
+    }
+
     let matched=0, unmatched=[];
     bdSubmissions.forEach(sub=>{
-      const bdStu = bdStudents.find(s=>s.nombre.trim().toLowerCase()===sub.studentName.trim().toLowerCase());
+      const normSub = normName(sub.studentName);
+      const bdStu = bdStudents.find(s => normName(`${s.nombre} ${s.apellidos}`) === normSub);
       if (!bdStu) { unmatched.push(sub.studentName); return; }
       if (!matData.puntuaciones[bdStu.id]) matData.puntuaciones[bdStu.id]={};
       matData.puntuaciones[bdStu.id][instId]=sub.earnedPoints;
