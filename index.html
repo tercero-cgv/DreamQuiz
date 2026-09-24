@@ -567,6 +567,7 @@ async function loadExams() {
         </div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-sky btn-sm" onclick="editExam('${d.id}')">✏️</button>
+          <button class="btn btn-star btn-sm" onclick="duplicateExam('${d.id}')">⧉</button>
           <button class="btn btn-coral btn-sm" onclick="deleteExam('${d.id}')">🗑</button>
         </div>
       </div>`;
@@ -590,6 +591,28 @@ window.editExam = async id => {
   // Update save button label
   const saveBtn = document.querySelector('#s-create-exam .btn-mint');
   if (saveBtn) saveBtn.textContent = '💾 Actualizar Prueba';
+};
+
+window.duplicateExam = async id => {
+  const snap = await getDoc(doc(db,'exams',id));
+  if (!snap.exists()) return;
+  const e = snap.data();
+
+  const newTitle = prompt('Título para la copia:', e.title + ' — Reposición');
+  if (!newTitle) return;
+  const newCode  = prompt('Código de acceso (estudiantes):', e.code + 'R');
+  if (!newCode) return;
+
+  const newId = 'ex-'+Date.now();
+  await setDoc(doc(db,'exams',newId), {
+    ...e,
+    title: newTitle,
+    code: newCode.toUpperCase(),
+    completedBy: [],
+    createdAt: serverTimestamp()
+  });
+  alert('✅ Prueba duplicada: ' + newTitle);
+  loadExams();
 };
 
 window.deleteExam = async id => {
