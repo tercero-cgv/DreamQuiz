@@ -846,21 +846,20 @@ window.importFromExcel = function(input) {
       const sheetName = wb.SheetNames.includes('Preguntas') ? 'Preguntas' : wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws);
-      const letterToIdx = {A:0, B:1, C:2, D:3};
       let count = 0;
       rows.forEach(r => {
         const text = (r['Pregunta'] || '').toString().trim();
         if (!text) return;
-        const opts = [
-          (r['Respuesta A'] || '').toString().trim(),
-          (r['Respuesta B'] || '').toString().trim(),
-          (r['Respuesta C'] || '').toString().trim(),
-          (r['Respuesta D'] || '').toString().trim()
-        ];
-        const correctLetter = (r['Correcta (letra)'] || r['Correcta'] || 'A').toString().trim().toUpperCase();
-        const correct = letterToIdx[correctLetter] ?? 0;
+        const opts = {
+          a: (r['Respuesta A'] || '').toString().trim(),
+          b: (r['Respuesta B'] || '').toString().trim(),
+          c: (r['Respuesta C'] || '').toString().trim(),
+          d: (r['Respuesta D'] || '').toString().trim()
+        };
+        const correctLetter = (r['Correcta (letra)'] || r['Correcta'] || 'A').toString().trim().toLowerCase();
+        const correct = ['a','b','c','d'].includes(correctLetter) ? correctLetter : 'a';
         const timeLimit = parseInt(r['Tiempo (seg)'] || r['Tiempo'] || 30) || 30;
-        examQs.push({type:'mc', text, options:opts, correct, points:1, timeLimit});
+        examQs.push({type:'mc', text, options:opts, correct, points:1, timeLimit, id:Date.now()+count});
         count++;
       });
       renderBuilderList();
