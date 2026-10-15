@@ -311,6 +311,8 @@ body { font-family:'Nunito',sans-serif; background:var(--navy); color:var(--whit
       <div class="divider"></div>
       <div class="flex-between mb12">
         <h3 style="font-weight:800">Preguntas</h3>
+        <input type="file" id="xlsx-import-input" accept=".xlsx" style="display:none" onchange="importFromExcel(this)">
+        <button class="btn btn-star btn-sm" onclick="document.getElementById('xlsx-import-input').click()">📥 Excel</button>
         <button class="btn btn-sky btn-sm" onclick="openAddQ()">+ Pregunta</button>
       </div>
       <div id="q-builder-list"></div>
@@ -437,6 +439,9 @@ body { font-family:'Nunito',sans-serif; background:var(--navy); color:var(--whit
     </div>
   </div>
 </div>
+
+<!-- SheetJS para leer archivos Excel (.xlsx) en el browser -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script type="module">
 import { initializeApp }   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -828,6 +833,46 @@ function renderBuilderList() {
     </div>`).join('');
 }
 window.removeQ = i => { examQs.splice(i,1); renderBuilderList(); };
+
+// ── Importar preguntas desde Excel (.xlsx) ──────────────────────────────────
+window.importFromExcel = function(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      // Intentar hoja "Preguntas", si no existe usar la primera
+      const sheetName = wb.SheetNames.includes('Preguntas') ? 'Preguntas' : wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws);
+      const letterToIdx = {A:0, B:1, C:2, D:3};
+      let count = 0;
+      rows.forEach(r => {
+        const text = (r['Pregunta'] || '').toString().trim();
+        if (!text) return;
+        const opts = [
+          (r['Respuesta A'] || '').toString().trim(),
+          (r['Respuesta B'] || '').toString().trim(),
+          (r['Respuesta C'] || '').toString().trim(),
+          (r['Respuesta D'] || '').toString().trim()
+        ];
+        const correctLetter = (r['Correcta (letra)'] || r['Correcta'] || 'A').toString().trim().toUpperCase();
+        const correct = letterToIdx[correctLetter] ?? 0;
+        const timeLimit = parseInt(r['Tiempo (seg)'] || r['Tiempo'] || 30) || 30;
+        examQs.push({type:'mc', text, options:opts, correct, points:1, timeLimit});
+        count++;
+      });
+      renderBuilderList();
+      input.value = '';
+      alert(`✅ ${count} pregunta${count !== 1 ? 's' : ''} importada${count !== 1 ? 's' : ''} desde Excel.\n\nRevísalas y presiona 💾 Guardar para publicar la prueba.`);
+    } catch(err) {
+      alert('❌ Error al leer el archivo Excel. Asegúrate de que sea un archivo .xlsx válido.\n\nDetalle: ' + err.message);
+      console.error('importFromExcel error:', err);
+    }
+  };
+  reader.readAsArrayBuffer(f);
+};
 
 window.addOrderItem = () => {
   const c = document.getElementById('order-items-container');
